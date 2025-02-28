@@ -1,17 +1,13 @@
 import { createClient } from 'redis';
 
 export async function getServerSideProps() {
-  // Считываем отдельные переменные окружения
   const { REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } = process.env;
-  // Формируем URL подключения
-  const redisUrl = `redis://:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}`;
+  const redisUrl = `redis://default:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}`;
 
   const client = createClient({ url: redisUrl });
   await client.connect();
 
-  // Получаем все ключи (при небольшом объеме данных это нормально)
   const keys = await client.keys('*');
-
   let data = {};
   if (keys.length > 0) {
     const values = await client.mGet(keys);
