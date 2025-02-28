@@ -1,28 +1,46 @@
-import { useEffect, useState } from 'react';
+import { createClient } from 'redis';
 
-export default function Home() {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+export async function getServerSideProps() {
+  // Создаем клиент Redis, указываем URL из переменной окружения
+  const client = createClient({
+    url: process.env.REDIS_URL
+  });
 
-  useEffect(() => {
-    fetch('/api/redis')
-      .then(res => res.json())
-      .then(data => {
-        setData(data);
-        setLoading(false);
-      });
-  }, []);
+  await client.connect();
 
+  // Получаем все ключи (при небольшом объеме данных это вполне ок)
+  const keys = await client.keys('*');
+
+  let data = {};
+  if (keys.length > 0) {
+    // Получаем значения для всех ключей
+    const values = await client.mGet(keys);
+    keys.forEach((key, index) => {
+      data[key] = values[index];
+    });
+  }
+
+  await client.disconnect();
+
+  return {
+    props: { data }
+  };
+}
+
+export default function Home({ data }) {
   return (
-    <div style={{ padding: '2rem' }}>
-      <h1>Redis Data Test</h1>
-      {loading ? (
-        <p>Loading...</p>
+    <div style={{ padding: '20px', fontFamily: 'sans-serif' }}>
+      <h1>Данные из Redis</h1>
+      {Object.keys(data).length === 0 ? (
+        <p>Нет данных в базе.</p>
       ) : (
-        <div>
-          <p>Status: {data.status}</p>
-          <p>Data: {data.data}</p>
-        </div>
+        <ul>
+          {Object.entries(data).map(([key, value]) => (
+            <li key={key}>
+              <strong>{key}:</strong> {value}
+            </li>
+          ))}
+        </ul>
       )}
     </div>
   );
