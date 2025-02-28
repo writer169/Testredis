@@ -2,10 +2,16 @@ import { createClient } from 'redis';
 
 export async function getServerSideProps() {
   const { REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } = process.env;
-  const redisUrl = `redis://default:${REDIS_PASSWORD}@${REDIS_HOST}:${REDIS_PORT}`;
+  const redisPassword = encodeURIComponent(REDIS_PASSWORD);
+  const redisUrl = `redis://default:${redisPassword}@${REDIS_HOST}:${REDIS_PORT}`;
 
   const client = createClient({ url: redisUrl });
-  await client.connect();
+  try {
+    await client.connect();
+  } catch (err) {
+    console.error('Ошибка подключения к Redis:', err);
+    return { props: { data: {} } };
+  }
 
   const keys = await client.keys('*');
   let data = {};
@@ -15,12 +21,9 @@ export async function getServerSideProps() {
       data[key] = values[index];
     });
   }
-
   await client.disconnect();
 
-  return {
-    props: { data }
-  };
+  return { props: { data } };
 }
 
 export default function Home({ data }) {
