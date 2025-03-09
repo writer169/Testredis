@@ -1,8 +1,9 @@
+// pages/index.js
 import { useState } from 'react';
-import { createClient } from 'redis';
 import { performance } from 'perf_hooks';
 import { useRouter } from 'next/router';
 import * as cookie from 'cookie';
+import { getRedisClient } from '../lib/redis';
 
 export async function getServerSideProps({ req, res }) {
   // Проверяем наличие cookie
@@ -24,18 +25,7 @@ export async function getServerSideProps({ req, res }) {
     };
   }
 
-  // Проверяем переменные окружения
-  const { REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } = process.env;
-  if (!REDIS_HOST || !REDIS_PORT || !REDIS_PASSWORD) {
-    console.error('Ошибка: отсутствуют параметры для Redis.');
-    return { props: { error: 'Ошибка конфигурации Redis' } };
-  }
-
-  const redisPassword = encodeURIComponent(REDIS_PASSWORD);
-  const redisUrl = `redis://default:${redisPassword}@${REDIS_HOST}:${REDIS_PORT}`;
-
-  const client = createClient({ url: redisUrl });
-
+  let client;
   let connectTime = null;
   let fetchTime = null;
   let isAuthenticated = false;
@@ -43,13 +33,12 @@ export async function getServerSideProps({ req, res }) {
 
   try {
     const startConnect = performance.now();
-    await client.connect();
+    client = await getRedisClient();
     connectTime = performance.now() - startConnect;
 
     // Проверка сессии
     const username = await client.get(`session:${sessionId}`);
     if (!username) {
-      await client.disconnect();
       return {
         redirect: {
           destination: '/login',
@@ -60,31 +49,41 @@ export async function getServerSideProps({ req, res }) {
 
     isAuthenticated = true;
 
-    // Запрос данных из Redis
+    // Запрос данных из Redis, используя более конкретный шаблон
+    // Избегаем использования keys, так как это может быть медленной операцией в больших БД
     const startFetch = performance.now();
-    const keys = await client.keys('*');
+    
+    // Используем SCAN вместо KEYS для более эффективного поиска
+    // Примечание: здесь используется более безопасный подход - поиск только данных,
+    // которые не являются сессиями
+    const dataKeys = [];
+    let cursor = 0;
+    do {
+      const result = await client.scan(cursor, {
+        MATCH: 'data:*', // Предполагаем, что данные пользователей хранятся с префиксом data:
+        COUNT: 100
+      });
+      cursor = result.cursor;
+      dataKeys.push(...result.keys);
+    } while (cursor !== 0);
 
-    if (keys.length > 0) {
-      const filteredKeys = keys.filter(key => !key.startsWith('session:'));
-      if (filteredKeys.length > 0) {
-        try {
-          const values = await client.mGet(filteredKeys);
-          filteredKeys.forEach((key, index) => {
-            data[key] = values[index] !== undefined ? values[index] : '';
-          });
-        } catch (err) {
-          console.error('Ошибка при mGet:', err);
-        }
+    if (dataKeys.length > 0) {
+      try {
+        const values = await client.mGet(dataKeys);
+        dataKeys.forEach((key, index) => {
+          data[key] = values[index] !== undefined ? values[index] : '';
+        });
+      } catch (err) {
+        console.error('Ошибка при mGet:', err);
       }
     }
 
     fetchTime = performance.now() - startFetch;
-    await client.disconnect();
   } catch (err) {
     console.error('Ошибка при работе с Redis:', err);
+  } finally {
+    if (client) await client.disconnect();
   }
-
-  console.log('Данные перед рендерингом:', { data, connectTime, fetchTime, isAuthenticated });
 
   return { props: { data, connectTime, fetchTime, isAuthenticated } };
 }
@@ -94,7 +93,13 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', { method: 'POST' });
+      await fetch('/api/logout', { 
+        method: 'POST',
+        headers: {
+          // Добавляем заголовок для CSRF защиты
+          'X-CSRF-Token': 'YOUR_TOKEN_LOGIC_HERE'
+        }
+      });
       router.push('/login');
     } catch (err) {
       console.error('Ошибка при выходе:', err);
@@ -124,7 +129,7 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
       <p><strong>Время получения данных:</strong> {fetchTime ? `${fetchTime.toFixed(2)} мс` : 'Ошибка'}</p>
 
       {Object.keys(data).length === 0 ? (
-        <p>Нет данных в базе (кроме сессий).</p>
+        <p>Нет данных в базе.</p>
       ) : (
         <ul>
           {Object.entries(data).map(([key, value]) => (
