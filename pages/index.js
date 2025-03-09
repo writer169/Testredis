@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { createClient } from 'redis';
 import { performance } from 'perf_hooks';
 import { useRouter } from 'next/router';
-import cookie from 'cookie';
+import * as cookie from 'cookie';
 
 export async function getServerSideProps({ req, res }) {
   // Проверяем наличие cookie
