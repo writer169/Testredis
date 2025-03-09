@@ -5,11 +5,16 @@ import { useRouter } from 'next/router';
 import cookie from 'cookie';
 
 export async function getServerSideProps({ req, res }) {
-  // Проверка наличия заголовка cookie
-  const cookieHeader = req.headers?.cookie || '';
-  const cookies = cookieHeader ? cookie.parse(cookieHeader) : {};
-  const sessionId = cookies.sessionId;
+  // Проверяем наличие cookie
+  let cookies = {};
+  try {
+    const cookieHeader = req.headers?.cookie || '';
+    cookies = cookie.parse(cookieHeader);
+  } catch (error) {
+    console.error('Ошибка разбора cookie:', error);
+  }
 
+  const sessionId = cookies.sessionId || null;
   if (!sessionId) {
     return {
       redirect: {
@@ -19,7 +24,13 @@ export async function getServerSideProps({ req, res }) {
     };
   }
 
+  // Проверяем переменные окружения
   const { REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } = process.env;
+  if (!REDIS_HOST || !REDIS_PORT || !REDIS_PASSWORD) {
+    console.error('Ошибка: отсутствуют параметры для Redis.');
+    return { props: { error: 'Ошибка конфигурации Redis' } };
+  }
+
   const redisPassword = encodeURIComponent(REDIS_PASSWORD);
   const redisUrl = `redis://default:${redisPassword}@${REDIS_HOST}:${REDIS_PORT}`;
 
@@ -28,7 +39,7 @@ export async function getServerSideProps({ req, res }) {
   let connectTime = null;
   let fetchTime = null;
   let isAuthenticated = false;
-  let data = {}; // Инициализируем, чтобы не было undefined
+  let data = {}; // Гарантируем, что data не undefined
 
   try {
     const startConnect = performance.now();
@@ -56,10 +67,14 @@ export async function getServerSideProps({ req, res }) {
     if (keys.length > 0) {
       const filteredKeys = keys.filter(key => !key.startsWith('session:'));
       if (filteredKeys.length > 0) {
-        const values = await client.mGet(filteredKeys);
-        filteredKeys.forEach((key, index) => {
-          data[key] = values[index] !== undefined ? values[index] : '';
-        });
+        try {
+          const values = await client.mGet(filteredKeys);
+          filteredKeys.forEach((key, index) => {
+            data[key] = values[index] !== undefined ? values[index] : '';
+          });
+        } catch (err) {
+          console.error('Ошибка при mGet:', err);
+        }
       }
     }
 
