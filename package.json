@@ -10,6 +10,10 @@
     "next": "latest",
     "react": "latest",
     "react-dom": "latest",
-    "redis": "latest"
+    "redis": "latest",
+    "bcryptjs": "latest",
+    "cookie": "latest",
+    "uuid": "latest",
+    "next-iron-session": "latest"
   }
 }
