@@ -1,20 +1,22 @@
-// pages/api/login.js
 import bcrypt from 'bcryptjs';
 import { v4 as uuidv4 } from 'uuid';
-import cookie from 'cookie';
+import * as cookie from 'cookie';  // Исправленный импорт
 import { getRedisClient } from '../../lib/redis';
 
-// Используем переменные окружения вместо констант
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME;
 const ADMIN_PASSWORD_HASH = process.env.ADMIN_PASSWORD_HASH;
-const SESSION_DURATION = 60 * 60 * 24 * 7; // 7 дней в секундах
+const SESSION_DURATION = 60 * 60 * 24 * 7; // 7 дней
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
     return res.status(405).json({ message: 'Метод не разрешен' });
   }
 
-  const { username, password } = req.body;
+  // Парсим тело запроса
+  const { username, password } = req.body || {};
+  if (!username || !password) {
+    return res.status(400).json({ message: 'Требуются имя пользователя и пароль' });
+  }
 
   if (username !== ADMIN_USERNAME) {
     return res.status(401).json({ message: 'Неверное имя пользователя или пароль' });
@@ -28,12 +30,11 @@ export default async function handler(req, res) {
   let client;
   try {
     client = await getRedisClient();
-    
-    // Создание сессии
+    if (!client) throw new Error('Не удалось получить Redis-клиент');
+
     const sessionId = uuidv4();
     await client.set(`session:${sessionId}`, username, { EX: SESSION_DURATION });
 
-    // Установка cookie
     res.setHeader(
       'Set-Cookie',
       cookie.serialize('sessionId', sessionId, {
