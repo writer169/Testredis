@@ -1,5 +1,6 @@
-import { createClient } from 'redis';
-import cookie from 'cookie';
+// pages/api/logout.js
+import * as cookie from 'cookie';
+import { getRedisClient } from '../../lib/redis';
 
 export default async function handler(req, res) {
   if (req.method !== 'POST') {
@@ -12,15 +13,9 @@ export default async function handler(req, res) {
     return res.status(200).json({ success: true });
   }
 
-  // Подключение к Redis
-  const { REDIS_HOST, REDIS_PORT, REDIS_PASSWORD } = process.env;
-  const redisPassword = encodeURIComponent(REDIS_PASSWORD);
-  const redisUrl = `redis://default:${redisPassword}@${REDIS_HOST}:${REDIS_PORT}`;
-
   let client;
   try {
-    client = createClient({ url: redisUrl });
-    await client.connect();
+    client = await getRedisClient();
     
     // Удаление сессии из Redis
     await client.del(`session:${sessionId}`);
