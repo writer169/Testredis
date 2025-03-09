@@ -49,32 +49,24 @@ export async function getServerSideProps({ req, res }) {
 
     isAuthenticated = true;
 
-    // Запрос данных из Redis, используя более конкретный шаблон
-    // Избегаем использования keys, так как это может быть медленной операцией в больших БД
+    // Запрос данных из Redis
     const startFetch = performance.now();
     
-    // Используем SCAN вместо KEYS для более эффективного поиска
-    // Примечание: здесь используется более безопасный подход - поиск только данных,
-    // которые не являются сессиями
-    const dataKeys = [];
-    let cursor = 0;
-    do {
-      const result = await client.scan(cursor, {
-        MATCH: 'data:*', // Предполагаем, что данные пользователей хранятся с префиксом data:
-        COUNT: 100
-      });
-      cursor = result.cursor;
-      dataKeys.push(...result.keys);
-    } while (cursor !== 0);
-
-    if (dataKeys.length > 0) {
-      try {
-        const values = await client.mGet(dataKeys);
-        dataKeys.forEach((key, index) => {
-          data[key] = values[index] !== undefined ? values[index] : '';
-        });
-      } catch (err) {
-        console.error('Ошибка при mGet:', err);
+    // Получаем все ключи, как в оригинальном коде, но с улучшенной фильтрацией сессий
+    const keys = await client.keys('*');
+    
+    if (keys.length > 0) {
+      // Фильтруем только ключи, которые не начинаются с session:
+      const filteredKeys = keys.filter(key => !key.startsWith('session:'));
+      if (filteredKeys.length > 0) {
+        try {
+          const values = await client.mGet(filteredKeys);
+          filteredKeys.forEach((key, index) => {
+            data[key] = values[index] !== undefined ? values[index] : '';
+          });
+        } catch (err) {
+          console.error('Ошибка при mGet:', err);
+        }
       }
     }
 
@@ -93,13 +85,7 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
 
   const handleLogout = async () => {
     try {
-      await fetch('/api/logout', { 
-        method: 'POST',
-        headers: {
-          // Добавляем заголовок для CSRF защиты
-          'X-CSRF-Token': 'YOUR_TOKEN_LOGIC_HERE'
-        }
-      });
+      await fetch('/api/logout', { method: 'POST' });
       router.push('/login');
     } catch (err) {
       console.error('Ошибка при выходе:', err);
@@ -129,7 +115,7 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
       <p><strong>Время получения данных:</strong> {fetchTime ? `${fetchTime.toFixed(2)} мс` : 'Ошибка'}</p>
 
       {Object.keys(data).length === 0 ? (
-        <p>Нет данных в базе.</p>
+        <p>Нет данных в базе (кроме сессий).</p>
       ) : (
         <ul>
           {Object.entries(data).map(([key, value]) => (
