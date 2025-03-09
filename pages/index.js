@@ -5,8 +5,9 @@ import { useRouter } from 'next/router';
 import cookie from 'cookie';
 
 export async function getServerSideProps({ req, res }) {
-  // Проверка аутентификации
-  const cookies = cookie.parse(req.headers.cookie || '');
+  // Проверка наличия заголовка cookie
+  const cookieHeader = req.headers?.cookie || '';
+  const cookies = cookieHeader ? cookie.parse(cookieHeader) : {};
   const sessionId = cookies.sessionId;
 
   if (!sessionId) {
