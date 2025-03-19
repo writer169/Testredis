@@ -5,6 +5,7 @@ import * as cookie from 'cookie';
 import { getRedisClient } from '../lib/redis';
 
 export async function getServerSideProps({ req, res }) {
+  // Проверяем наличие cookie
   let cookies = {};
   try {
     const cookieHeader = req.headers?.cookie || '';
@@ -27,13 +28,14 @@ export async function getServerSideProps({ req, res }) {
   let connectTime = null;
   let fetchTime = null;
   let isAuthenticated = false;
-  let data = {};
+  let data = {}; // Гарантируем, что data не undefined
 
   try {
     const startConnect = performance.now();
     client = await getRedisClient();
     connectTime = performance.now() - startConnect;
 
+    // Проверка сессии
     const username = await client.get(`session:${sessionId}`);
     if (!username) {
       return {
@@ -46,35 +48,18 @@ export async function getServerSideProps({ req, res }) {
 
     isAuthenticated = true;
 
+    // Запрос данных из Redis
     const startFetch = performance.now();
-    let cursor = '0';
-    let allKeys = [];
 
-    do {
-      const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
+    // Получаем все ключи без фильтрации
+    const keys = await client.keys('*');
 
-      if (!reply || !Array.isArray(reply) || reply.length !== 2) {
-        console.error("Invalid scan reply:", reply);
-        break;
-      }
-
-      cursor = reply[0]; // Новый курсор
-      const keys = reply[1]; // Массив ключей
-
-      allKeys.push(...keys);
-    } while (cursor !== '0');
-
-    if (allKeys.length > 0) {
+    if (keys.length > 0) {
       try {
-        const values = await client.mGet(allKeys);
-        if (!Array.isArray(values)) {
-          console.error("mGet returned non-array:", values);
-          data = {};
-        } else {
-          allKeys.forEach((key, index) => {
-            data[key] = values[index] !== null ? values[index] : ''; // Проверяем `null`
-          });
-        }
+        const values = await client.mGet(keys);
+        keys.forEach((key, index) => {
+          data[key] = values[index] !== undefined ? values[index] : '';
+        });
       } catch (err) {
         console.error('Ошибка при mGet:', err);
       }
@@ -84,9 +69,7 @@ export async function getServerSideProps({ req, res }) {
   } catch (err) {
     console.error('Ошибка при работе с Redis:', err);
   } finally {
-    if (client && client.isOpen) {
-      await client.disconnect();
-    }
+    if (client) await client.disconnect();
   }
 
   return { props: { data, connectTime, fetchTime, isAuthenticated } };
