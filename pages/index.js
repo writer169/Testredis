@@ -6,7 +6,6 @@ import * as cookie from 'cookie';
 import { getRedisClient } from '../lib/redis';
 
 export async function getServerSideProps({ req, res }) {
-  // Проверяем наличие cookie
   let cookies = {};
   try {
     const cookieHeader = req.headers?.cookie || '';
@@ -29,14 +28,13 @@ export async function getServerSideProps({ req, res }) {
   let connectTime = null;
   let fetchTime = null;
   let isAuthenticated = false;
-  let data = {}; // Гарантируем, что data не undefined
+  let data = {};
 
   try {
     const startConnect = performance.now();
     client = await getRedisClient();
     connectTime = performance.now() - startConnect;
 
-    // Проверка сессии
     const username = await client.get(`session:${sessionId}`);
     if (!username) {
       return {
@@ -49,24 +47,27 @@ export async function getServerSideProps({ req, res }) {
 
     isAuthenticated = true;
 
-    // Запрос данных из Redis
     const startFetch = performance.now();
-    
-    // Получаем все ключи, как в оригинальном коде, но с улучшенной фильтрацией сессий
-    const keys = await client.keys('*');
-    
-    if (keys.length > 0) {
-      // Фильтруем только ключи, которые не начинаются с session:
-      const filteredKeys = keys.filter(key => !key.startsWith('session:'));
-      if (filteredKeys.length > 0) {
-        try {
-          const values = await client.mGet(filteredKeys);
-          filteredKeys.forEach((key, index) => {
-            data[key] = values[index] !== undefined ? values[index] : '';
-          });
-        } catch (err) {
-          console.error('Ошибка при mGet:', err);
-        }
+    let cursor = '0';
+    let allKeys = []; // Изменили filteredKeys на allKeys
+    do {
+        const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
+        cursor = reply[0];
+        const keys = reply[1];
+
+        // Убрали фильтрацию: добавляем *все* ключи
+        allKeys.push(...keys);
+
+    } while (cursor !== '0');
+
+    if (allKeys.length > 0) {
+      try {
+        const values = await client.mGet(allKeys);
+        allKeys.forEach((key, index) => {
+          data[key] = values[index] !== undefined ? values[index] : '';
+        });
+      } catch (err) {
+        console.error('Ошибка при mGet:', err);
       }
     }
 
@@ -114,8 +115,9 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
       <p><strong>Время подключения:</strong> {connectTime ? `${connectTime.toFixed(2)} мс` : 'Ошибка'}</p>
       <p><strong>Время получения данных:</strong> {fetchTime ? `${fetchTime.toFixed(2)} мс` : 'Ошибка'}</p>
 
+      {/* Убрали условие, теперь показываем данные всегда, если они есть */}
       {Object.keys(data).length === 0 ? (
-        <p>Нет данных в базе (кроме сессий).</p>
+        <p>Нет данных в базе.</p>
       ) : (
         <ul>
           {Object.entries(data).map(([key, value]) => (
