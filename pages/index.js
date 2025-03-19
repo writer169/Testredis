@@ -49,13 +49,26 @@ export async function getServerSideProps({ req, res }) {
 
     const startFetch = performance.now();
     let cursor = '0';
-    let allKeys = []; // Изменили filteredKeys на allKeys
+    let allKeys = [];
     do {
         const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
+        console.log("Scan reply:", reply); // !!! КРИТИЧЕСКИ ВАЖНО !!!
+
+        if (!reply || !Array.isArray(reply)) {
+            console.error("Invalid scan reply:", reply);
+            break;
+        }
+
         cursor = reply[0];
         const keys = reply[1];
 
-        // Убрали фильтрацию: добавляем *все* ключи
+
+        if (!Array.isArray(keys)) {
+          console.error("Invalid keys array:", keys);
+          break;
+        }
+
+
         allKeys.push(...keys);
 
     } while (cursor !== '0');
@@ -63,11 +76,19 @@ export async function getServerSideProps({ req, res }) {
     if (allKeys.length > 0) {
       try {
         const values = await client.mGet(allKeys);
-        allKeys.forEach((key, index) => {
-          data[key] = values[index] !== undefined ? values[index] : '';
-        });
+
+        if(!Array.isArray(values)){
+          console.error("mGet returned non-array:", values);
+          data = {};
+        } else {
+
+            allKeys.forEach((key, index) => {
+                data[key] = values[index] !== undefined ? values[index] : '';
+            });
+        }
       } catch (err) {
         console.error('Ошибка при mGet:', err);
+        console.error("Failed to get values for keys:", allKeys);
       }
     }
 
@@ -115,7 +136,6 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
       <p><strong>Время подключения:</strong> {connectTime ? `${connectTime.toFixed(2)} мс` : 'Ошибка'}</p>
       <p><strong>Время получения данных:</strong> {fetchTime ? `${fetchTime.toFixed(2)} мс` : 'Ошибка'}</p>
 
-      {/* Убрали условие, теперь показываем данные всегда, если они есть */}
       {Object.keys(data).length === 0 ? (
         <p>Нет данных в базе.</p>
       ) : (
