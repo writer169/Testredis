@@ -1,4 +1,3 @@
-// pages/index.js
 import { useState } from 'react';
 import { performance } from 'perf_hooks';
 import { useRouter } from 'next/router';
@@ -50,39 +49,34 @@ export async function getServerSideProps({ req, res }) {
     const startFetch = performance.now();
     let cursor = '0';
     let allKeys = [];
+
     do {
-        const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
-        // console.log("Scan reply:", reply); // Можно закомментировать, если все работает
+      const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
 
-        // ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем .cursor и .keys
-        if (!reply || typeof reply !== 'object' || !reply.cursor || !Array.isArray(reply.keys)) {
-            console.error("Invalid scan reply:", reply);
-            break;
-        }
+      if (!reply || !Array.isArray(reply) || reply.length !== 2) {
+        console.error("Invalid scan reply:", reply);
+        break;
+      }
 
-        cursor = reply.cursor; // Используем .cursor
-        const keys = reply.keys;   // Используем .keys
+      cursor = reply[0]; // Новый курсор
+      const keys = reply[1]; // Массив ключей
 
-        allKeys.push(...keys);
-
-    } while (cursor !== '0' && typeof cursor === 'string');
+      allKeys.push(...keys);
+    } while (cursor !== '0');
 
     if (allKeys.length > 0) {
       try {
         const values = await client.mGet(allKeys);
-
-        if(!Array.isArray(values)){
+        if (!Array.isArray(values)) {
           console.error("mGet returned non-array:", values);
           data = {};
         } else {
-
-            allKeys.forEach((key, index) => {
-                data[key] = values[index] !== undefined ? values[index] : '';
-            });
+          allKeys.forEach((key, index) => {
+            data[key] = values[index] !== null ? values[index] : ''; // Проверяем `null`
+          });
         }
       } catch (err) {
         console.error('Ошибка при mGet:', err);
-        console.error("Failed to get values for keys:", allKeys);
       }
     }
 
@@ -90,7 +84,9 @@ export async function getServerSideProps({ req, res }) {
   } catch (err) {
     console.error('Ошибка при работе с Redis:', err);
   } finally {
-    if (client) await client.disconnect();
+    if (client && client.isOpen) {
+      await client.disconnect();
+    }
   }
 
   return { props: { data, connectTime, fetchTime, isAuthenticated } };
