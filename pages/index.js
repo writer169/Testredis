@@ -52,9 +52,9 @@ export async function getServerSideProps({ req, res }) {
     let allKeys = [];
     do {
         const reply = await client.scan(cursor, 'MATCH', '*', 'COUNT', 1000);
-        // console.log("Scan reply:", reply); // Больше не нужен, но можно оставить для отладки
+        // console.log("Scan reply:", reply); // Можно закомментировать, если все работает
 
-        // Исправляем обращение к reply: используем .cursor и .keys
+        // ГЛАВНОЕ ИСПРАВЛЕНИЕ: используем .cursor и .keys
         if (!reply || typeof reply !== 'object' || !reply.cursor || !Array.isArray(reply.keys)) {
             console.error("Invalid scan reply:", reply);
             break;
@@ -65,7 +65,7 @@ export async function getServerSideProps({ req, res }) {
 
         allKeys.push(...keys);
 
-    } while (cursor !== '0' && typeof cursor === 'string'); // Добавлена проверка типа курсора.
+    } while (cursor !== '0' && typeof cursor === 'string');
 
     if (allKeys.length > 0) {
       try {
