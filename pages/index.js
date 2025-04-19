@@ -5,7 +5,6 @@ import * as cookie from 'cookie';
 import { getRedisClient } from '../lib/redis';
 
 export async function getServerSideProps({ req, res }) {
-  // Проверяем наличие cookie
   let cookies = {};
   try {
     const cookieHeader = req.headers?.cookie || '';
@@ -28,14 +27,13 @@ export async function getServerSideProps({ req, res }) {
   let connectTime = null;
   let fetchTime = null;
   let isAuthenticated = false;
-  let data = {}; // Гарантируем, что data не undefined
+  let data = {};
 
   try {
     const startConnect = performance.now();
     client = await getRedisClient();
     connectTime = performance.now() - startConnect;
 
-    // Проверка сессии
     const username = await client.get(`session:${sessionId}`);
     if (!username) {
       return {
@@ -48,20 +46,24 @@ export async function getServerSideProps({ req, res }) {
 
     isAuthenticated = true;
 
-    // Запрос данных из Redis
     const startFetch = performance.now();
-
-    // Получаем все ключи без фильтрации
     const keys = await client.keys('*');
 
     if (keys.length > 0) {
       try {
         const values = await client.mGet(keys);
+        // Добавляем получение TTL для каждого ключа
+        const ttlPromises = keys.map(key => client.ttl(key));
+        const ttls = await Promise.all(ttlPromises);
+
         keys.forEach((key, index) => {
-          data[key] = values[index] !== undefined ? values[index] : '';
+          data[key] = {
+            value: values[index] !== undefined ? values[index] : '',
+            ttl: ttls[index]
+          };
         });
       } catch (err) {
-        console.error('Ошибка при mGet:', err);
+        console.error('Ошибка при получении данных:', err);
       }
     }
 
@@ -85,6 +87,14 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
     } catch (err) {
       console.error('Ошибка при выходе:', err);
     }
+  };
+
+  // Функция для форматирования TTL
+  const formatTTL = (ttl) => {
+    if (ttl >= 0) return `${ttl} сек`;
+    if (ttl === -1) return 'нет TTL';
+    if (ttl === -2) return 'не существует';
+    return 'неизвестно';
   };
 
   return (
@@ -113,9 +123,10 @@ export default function Home({ data = {}, connectTime = null, fetchTime = null, 
         <p>Нет данных в базе.</p>
       ) : (
         <ul>
-          {Object.entries(data).map(([key, value]) => (
+          {Object.entries(data).map(([key, { value, ttl }]) => (
             <li key={key}>
-              <strong>{key}:</strong> {value}
+              <strong>{key}:</strong> {value} <br />
+              <small>TTL: {formatTTL(ttl)}</small>
             </li>
           ))}
         </ul>
